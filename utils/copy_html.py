@@ -33,11 +33,13 @@ from pathlib import Path
 from datetime import datetime
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+from config import settings
+
 # ─────────────────────────────────────────────────────────────────────────────
 # RUTAS  (relativas a la raíz del proyecto)
 # ─────────────────────────────────────────────────────────────────────────────
 ROOT        = Path(__file__).resolve().parent.parent   # StockX_Project/
-URLS_FILE   = ROOT / "docs"       / "lista_urls.txt"   # cambiar si se va a usar con otra lista
+URLS_FILE   = ROOT / "docs"       / settings.URL_LIST_NAME  # cambiar si se va a usar con otra lista
 HTML_FOLDER = ROOT / "html_pages"
 # Contexto persistente: guarda cookies y localStorage entre ejecuciones
 CONTEXT_DIR = ROOT / ".browser_context"
