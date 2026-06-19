@@ -1,5 +1,6 @@
 html_pages/
 .browser_context
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
