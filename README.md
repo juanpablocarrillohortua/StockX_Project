@@ -1,83 +1,80 @@
-# StockX Scraper
+# StockX Sneaker Analytics
 
-Extrae datos de sneakers desde StockX combinando dos fuentes:
-
-- **HTML local** → título, marca, colorway, style number, retail price, fecha de lanzamiento, descripción
-- **GraphQL API** → serie de tiempo de precios de venta (hasta 100 puntos)
-
-Todo se cruza automáticamente en un único archivo `data/sneakers_data.json`.
+End-to-end pipeline that scrapes sneaker data from StockX, cleans it, performs exploratory analysis, and trains a machine learning model to predict whether a sneaker's resale price will exceed its retail price 90 days after launch.
 
 ---
 
-## Estructura del proyecto
+## Project Structure
 
 ```
 StockX_Project/
-├── main.py                  ← Orquestador: corre el pipeline completo
+├── main.py                        ← Orchestrator: runs the full pipeline
 ├── utils/
-│   ├── search_urls.py       ← Fase 1: extrae URLs desde una categoría de StockX
-│   ├── copy_html.py         ← Fase 2: descarga el HTML de cada producto
-│   └── scraper.py           ← Fase 3: cruza HTML + API → JSON final
+│   ├── search_urls.py             ← Phase 1: extracts URLs from a StockX category
+│   ├── copy_html.py               ← Phase 2: downloads the HTML of each product page
+│   └── scraper.py                 ← Phase 3: merges HTML + GraphQL API → final JSON
+├── notebooks/
+│   ├── Data_Cleaning.ipynb        ← Cleaning, imputation, and feature engineering
+│   ├── EDA_1.ipynb                ← Univariate and bivariate exploratory analysis
+│   └── model_training.ipynb      ← Feature selection, model training, and evaluation
 ├── docs/
-│   └── lista_urls.txt       ← URLs de los sneakers a procesar
-├── html_pages/              ← HTMLs descargados (generado automáticamente)
+│   └── lista_urls.txt             ← URLs of sneakers to process
+├── html_pages/                    ← Downloaded HTMLs (auto-generated)
 └── data/
-    └── sneakers_data.json   ← Salida final (generado automáticamente)
+    ├── sneakers_data.json         ← Raw scraper output (auto-generated)
+    └── clean_data.pkl             ← Cleaned dataset ready for modelling
 ```
 
 ---
 
-## Requisitos
+## Requirements
 
-**Python 3.11+** y las siguientes librerías:
+**Python 3.11+** and the following libraries:
 
 ```bash
-pip install curl_cffi beautifulsoup4 playwright
+pip install curl_cffi beautifulsoup4 playwright pandas numpy seaborn matplotlib scikit-learn statsmodels scipy ruptures joblib tqdm
 python -m playwright install chrome
 ```
 
-**Google Chrome instalado** en el sistema (requerido por `copy_html.py`).
+**Google Chrome** must be installed on the system (required by `copy_html.py`).
 
 ---
 
-## Configuración inicial
+## Initial Setup
 
-### 1. Token de autorización (se renueva cada 12 horas)
+### 1. Authorization Token (expires every 12 hours)
 
-El scraper necesita un JWT de tu sesión de StockX para acceder a la API GraphQL.
+The scraper needs a JWT from your StockX session to access the GraphQL API.
 
-**Cómo obtenerlo:**
+**How to obtain it:**
 
-1. Entra a [stockx.com](https://stockx.com) y asegúrate de estar logueado
-2. Abre DevTools → pestaña **Network** (`F12` → Network)
-3. Filtra por `graphql` en la barra de búsqueda
-4. Navega a cualquier página de producto
-5. Haz clic en cualquier request que aparezca en Network
-6. En la sección **Request Headers**, copia el valor del header `authorization`
-   (empieza con `Bearer eyJ...`)
+1. Go to [stockx.com](https://stockx.com) and make sure you are logged in
+2. Open DevTools → **Network** tab (`F12` → Network)
+3. Filter by `graphql` in the search bar
+4. Navigate to any product page
+5. Click on any request that appears in Network
+6. Under **Request Headers**, copy the value of the `authorization` header (starts with `Bearer eyJ...`)
 
-**Cómo configurarlo** (elige una opción):
+**How to configure it (pick one option):**
 
 ```bash
-# Opción A — Variable de entorno (recomendada, no queda en el código)
+# Option A — Environment variable (recommended, keeps it out of the code)
 export STOCKX_TOKEN="Bearer eyJhbGci..."
 
-# Opción B — Hardcodeado en scraper.py
-# Edita la línea AUTHORIZATION = "Bearer TU_TOKEN_AQUI" en utils/scraper.py
+# Option B — Hardcoded in scraper.py
+# Edit the line AUTHORIZATION = "Bearer YOUR_TOKEN_HERE" in utils/scraper.py
 ```
 
-> **Nota:** el token expira a las 12 horas. El script detecta si está vencido
-> y avisa antes de empezar. Si ves `❌ TOKEN EXPIRADO`, repite los pasos anteriores.
+> **Note:** the token expires after 12 hours. The script detects expiry before starting.
+> If you see `❌ TOKEN EXPIRADO`, repeat the steps above.
 
-### 2. Lista de URLs
+### 2. URL List
 
-Edita `docs/lista_urls.txt` con las URLs de los productos que quieres procesar,
-una por línea. Las líneas que empiecen con `#` se ignoran.
+Edit `docs/lista_urls.txt` with the product URLs you want to scrape, one per line. Lines starting with `#` are ignored.
 
 ```
 # Jordan
 https://stockx.com/air-jordan-1-retro-high-og-chicago-2015
-https://stockx.com/air-jordan-cj1-t-rexx-travis-scott-green-spark
 
 # Nike
 https://stockx.com/nike-dunk-low-retro-white-black-2021
@@ -85,75 +82,65 @@ https://stockx.com/nike-dunk-low-retro-white-black-2021
 
 ---
 
-## Uso
+## Usage
 
-Todos los comandos se ejecutan desde la raíz del proyecto (`StockX_Project/`).
+All commands run from the project root (`StockX_Project/`).
 
-### Pipeline completo (recomendado)
+### Full Pipeline (recommended)
 
-Corre las tres fases en secuencia:
+Runs all three phases in sequence:
 
 ```bash
 cd StockX_Project
 python main.py
 ```
 
-Con opciones:
+With options:
 
 ```bash
-# Cambiar la URL de catálogo de la Fase 1
+# Change the catalogue URL for Phase 1
 python main.py --url https://stockx.com/brands/nike
 
-# Probar el pipeline con solo 5 productos
+# Test the pipeline with only 5 products
 python main.py --limit 5
 
-# Reanudar después de una interrupción (omite lo ya procesado)
+# Resume after an interruption (skips already-processed items)
 python main.py --skip-existing
 ```
 
 ---
 
-### Fases por separado
+### Phases Individually
 
-Si ya tienes las URLs en `lista_urls.txt` puedes saltarte la Fase 1 y correr
-las fases 2 y 3 directamente.
+If you already have URLs in `lista_urls.txt`, you can skip Phase 1 and run Phases 2 and 3 directly.
 
-#### Fase 2 — Descargar HTMLs
+#### Phase 2 — Download HTMLs
 
-Abre Chrome automáticamente y guarda el HTML de cada producto en `html_pages/`:
+Opens Chrome automatically and saves each product's HTML to `html_pages/`:
 
 ```bash
 python utils/copy_html.py
-
-# Solo los que aún no tienen HTML descargado
-python utils/copy_html.py --skip-existing
-
-# Probar con los primeros 3
-python utils/copy_html.py --limit 3
+python utils/copy_html.py --skip-existing   # skip already-downloaded pages
+python utils/copy_html.py --limit 3         # test with the first 3
 ```
 
-> Chrome se abre en modo visible (no headless) para evitar la detección de bots.
-> Es normal que veas ventanas abrirse y cerrarse mientras corre.
+> Chrome opens in visible mode (not headless) to avoid bot detection.
 
-#### Fase 3 — Cruzar datos y generar JSON
+#### Phase 3 — Merge Data and Generate JSON
 
-Lee los HTMLs locales y los combina con la serie de tiempo de la API:
+Reads local HTMLs and combines them with the price time series from the API:
 
 ```bash
 python utils/scraper.py
-
-# Omitir slugs que ya están en sneakers_data.json
 python utils/scraper.py --skip-existing
-
-# Con token desde variable de entorno
 STOCKX_TOKEN="Bearer eyJ..." python utils/scraper.py
 ```
 
 ---
 
-## Formato del JSON de salida
+## JSON Output Format
 
-`data/sneakers_data.json` contiene un array donde cada elemento tiene esta estructura:
+`data/sneakers_data.json` contains an array where each element has this structure:
 
 ```json
 {
@@ -164,7 +151,7 @@ STOCKX_TOKEN="Bearer eyJ..." python utils/scraper.py
   "product_details": {
     "title": "Air Jordan 1 Retro High OG Chicago 2015",
     "brand": "Jordan",
-    "description": "Descripción larga del producto...",
+    "description": "Long product description...",
     "source": "next_data",
     "traits": {
       "style":        "575441-101",
@@ -194,8 +181,7 @@ STOCKX_TOKEN="Bearer eyJ..." python utils/scraper.py
 }
 ```
 
-`_meta` duplica los campos más usados al nivel raíz para facilitar la carga
-en pandas o Excel sin navegar dicts anidados:
+`_meta` duplicates the most-used fields at the root level for easy loading into pandas:
 
 ```python
 import pandas as pd, json
@@ -206,21 +192,238 @@ df = pd.DataFrame([r["_meta"] | {"slug": r["slug"]} for r in records])
 
 ---
 
-## Solución de problemas frecuentes
+## Notebooks
 
-| Síntoma | Causa | Solución |
-|---|---|---|
-| `❌ TOKEN EXPIRADO` | JWT vencido (dura 12h) | Renovar el token desde DevTools |
-| `HTML existe pero sin datos` | StockX bloqueó la descarga | Borrar el `.html` y volver a correr `copy_html.py` |
-| `HTTP 403` en la API | Token incorrecto o vencido | Verificar que el token empiece con `Bearer eyJ` |
-| `HTTP 429` en la API | Rate limit | El script reintenta automáticamente con backoff; espera |
-| Chrome no abre | Playwright sin Chrome | Correr `python -m playwright install chrome` |
-| `_meta` con campos `null` | `__NEXT_DATA__` con estructura diferente | El fallback HTML debería cubrirlo; revisar `errors` en el JSON |
+### `Data_Cleaning.ipynb` — Cleaning & Feature Engineering
+
+#### Input / Output
+
+| | Path |
+|---|---|
+| Input | `data/sneakers_data.json` |
+| Output | `data/clean_data.pkl` |
+
+#### Cleaning Steps
+
+**1. Initial quality filter**
+Rows are dropped if `product_details.source == 'not_found'` or `_meta.has_errors == True`. This removes a negligible number of records (~8) where the scraper could not extract product data.
+
+**2. Column selection**
+Only four base columns are kept: `sales_series`, `title`, `retail_price`, `release_date`. All other scraper fields are discarded at this stage.
+
+**3. Drop untrackable records**
+Rows where `sales_series` is empty AND both `retail_price` and `release_date` are null are removed (~9 rows). These have no recoverable signal.
+
+**4. Impute `release_date` from the time series**
+For the 7% of rows with a missing `release_date` but with a non-empty `sales_series`, the earliest `xValue` in the series is used as a proxy release date. Rows that are missing both `release_date` and `sales_series` are dropped (~74 rows, < 1.5% of the data).
+
+**5. Clean and impute `retail_price`**
+The `$` and `,` characters are stripped and the field is cast to `float`. Missing values are filled with `median − std` (because there are very few NaN), a conservative estimate below the median that avoids overestimating unknown prices.
+
+**6. Drop records without price history**
+After imputation, any remaining rows with an empty `sales_series` are dropped. A sneaker without a price series cannot contribute to any downstream analysis or modelling.
+
+**7. Type casting and deduplication**
+`release_date` is converted to `datetime` with `format='mixed'` to handle varied input formats. Duplicate titles are removed (keep first occurrence): ~N rows dropped.
+
+#### Feature Engineering
+
+All features are computed from `sales_series`, splitting it into a **pre-release window** (dates before `release_date`) and a **post-release window** (dates on or after `release_date`).
+
+| Feature | Formula / Logic |
+|---|---|
+| `brand` | Regex extraction from `title` for [Nike, Jordan, Adidas, Yeezy, Puma, New Balance, ASICS, Vans, Onitsuka]. Yeezy is detected separately via a `yeezy\|yzy` pattern and takes precedence over Adidas. |
+| `highest_value` | `max(yValue)` over the post-release window. |
+| `pre_release_peak` | `max(yValue)` over the pre-release window. `0` if no pre-release data exists. |
+| `current_value` | `yValue` of the last chronological point in the full series. |
+| `roi_pct` | `(highest_value − retail_price) / retail_price × 100` |
+| `is_above_retail` | `current_value > retail_price` |
+| `pre_release_premium_pct` | `(pre_release_peak − retail_price) / retail_price × 100` |
+| `days_to_peak` | `(date_of_highest_value − release_date).days` |
+| `lowest_value_post_release` | `min(yValue)` over the post-release window. |
+| `hype_decay_pct` | `(highest_value − current_value) / highest_value × 100` |
+| `price_volatility` | `std(yValue)` over the post-release window. `0` if fewer than 2 post-release points. |
 
 ---
 
-## Notas
+### `EDA_1.ipynb` — Exploratory Analysis
 
-- El scraper guarda el JSON **después de cada producto**, así que si se interrumpe no se pierde el trabajo anterior. Usa `--skip-existing` para reanudar.
-- Los delays entre requests son aleatorios (distribución gaussiana, ~2–8 segundos) para imitar comportamiento humano y evitar bloqueos.
-- El `x-stockx-device-id` y `x-stockx-session-id` se rotan en cada request para evitar fingerprinting por headers fijos.
+#### Input
+
+`data/clean_data.pkl`
+
+#### Univariate Analysis
+
+Histograms with KDE overlay and paired horizontal boxplots are generated for all numeric variables. Bar charts are used for `brand` and `is_above_retail`. A time-series bar chart shows the annual distribution of release dates.
+
+**Key observation — sample size imbalance:** the dataset is heavily skewed toward recent years (e.g., 1 record in 1990 vs. 1,567 in 2025). Any time-based comparison must account for this to avoid drawing conclusions from statistically unreliable year-averages.
+
+#### Bivariate Analysis
+
+The following relationships are examined:
+
+- **Pearson correlation heatmap** across all 10 numeric variables.
+- **Scatter plots** with regression lines for high-interest pairs: `retail_price vs current_value`, `pre_release_peak vs highest_value`, `price_volatility vs roi_pct`, `days_to_peak vs hype_decay_pct`.
+- **Grouped boxplots** of `roi_pct` and `price_volatility` by `is_above_retail` and by `brand` (top 10).
+- **Stacked proportion bars** showing the `is_above_retail` rate by brand (top 12).
+- **Temporal trend lines** (annual mean) for `retail_price` and `roi_pct`, annotated with sample size to distinguish reliable from unreliable points.
+
+#### Key EDA Findings
+
+**Retail price spike in 2016 is a small-sample artifact.** The year 2016 appears to have an unusually high average retail price (~$204) compared to surrounding years. However, this is driven by only 18 records, dominated by Yeezy ($220, n=3) and Jordan ($220, n=4) models — brands with consistently high retail prices. The visual spike disappears when sample size is considered.
+
+**Sneaker hype peaked around 2019–2020 and has been declining since.** Analyzing `roi_pct`, `pre_release_premium_pct`, and `hype_decay_pct` over time (restricted to years with n ≥ 20 and products with ≥ 730 days of market exposure):
+
+- `roi_pct` peaked at ~168% in 2019, falling to ~57% by 2026.
+- `pre_release_premium_pct` peaked at ~103% in 2019–2020, falling to ~25% by 2024.
+- `hype_decay_pct` fell from ~50% to ~37% in the same period.
+
+The decline in `pre_release_premium_pct` is the most diagnostic signal: it measures speculative pressure *before* release, making it immune to post-release observation-window bias. The convergence of all three metrics points to a genuine market cool-down, rather than a statistical artifact.
+
+> ⚠️ **Censorship bias caveat:** products from recent years have had less time to appreciate, which structurally depresses their ROI and decay metrics relative to older products. Residual analysis (regressing out `days_since_release`) was used to partially control for this effect.
+
+---
+
+### `model_training.ipynb` — Model Training
+
+#### Problem Definition
+
+**Task:** binary classification — predict whether a sneaker's resale price will be above its retail price at 90 days post-launch.
+
+**Target variable:** `is_above_retail_90d` — the price nearest to `release_date + 90 days` compared against `retail_price`.
+
+**Why not use the original `is_above_retail`?** The original variable compares `current_value` (measured *today*, regardless of how long ago the sneaker launched) against retail price. This creates a variable-length observation window: an older sneaker has had years to appreciate, while a new one only days. Using it as a target would introduce systematic bias. The fixed 90-day horizon standardizes the comparison.
+
+**Scope filter:** only sneakers released from 2017 onwards are used (`MIN_YEAR = 2017`). Earlier years have too few records for reliable model learning.
+
+#### Leakage Prevention
+
+The following columns are **explicitly excluded** from features because they are computed from post-release data and would not be available at prediction time (before or at launch):
+
+`highest_value`, `roi_pct`, `current_value`, `is_above_retail` (original), `days_to_peak`, `lowest_value_post_release`, `hype_decay_pct`, `price_volatility`, `days_since_release`, `value_at_horizon`
+
+All engineered features use **only pre-release data** or information available at launch.
+
+#### Feature Engineering (Modeling Dataset)
+
+| Feature | Type | Description |
+|---|---|---|
+| `retail_price` | float | Official launch price. |
+| `brand_grouped` | string | Brand, with rare brands (< 80 records) collapsed into `"Other"`. |
+| `brand_historical_rate` | float | % of the brand's *past* launches (before this release date) that stayed above retail at 90 days. Computed sequentially to avoid leakage. |
+| `pre_release_peak` | float | Max price before launch (speculation phase). |
+| `pre_release_premium_pct` | float | `(pre_release_peak − retail_price) / retail_price × 100` |
+| `has_pre_release_speculation` | bool | Whether any pre-release price points exist. |
+| `num_pre_release_points` | int | Count of pre-release price observations. |
+| `pre_release_volatility` | float | Std of pre-release prices. `0` if fewer than 2 points. |
+| `pre_release_trend` | float | Slope of a linear fit (price vs. days) over the pre-release window. |
+| `days_speculation_window` | int | Length (days) of the pre-release observation window. |
+| `release_year/month/quarter/dow` | int | Calendar features derived from `release_date`. |
+| `title_length` | int | Character length of the sneaker title. |
+| `is_special_edition` | bool | Inferred from title keywords. |
+| `is_collab` | bool | Inferred from title keywords (e.g. "x", "by", "ft"). |
+
+#### Technical Decisions
+
+**Non-normal distributions → RobustScaler.** Lilliefors tests confirm that numeric features are not normally distributed and contain significant outliers (IQR analysis shows 10–30% outlier rates on several features). `RobustScaler` (centers on median, scales by IQR) is used instead of `StandardScaler`. Outlieres are not deleted since they are hey on the context.
+
+**Two parallel datasets.** Because tree-based and linear models have different preprocessing requirements, two copies of the data are maintained throughout:
+
+- `df_modelo` → for tree-based models (Random Forest, Gradient Boosting). Uses **target encoding with Bayesian smoothing** (`smoothing=10`) for `brand_grouped`. Categorical temporal features left as integers.
+- `df_lin_model` → for linear models (Logistic Regression, KNN). Uses **one-hot encoding** for `brand_grouped` (with `drop_first=True`). Temporal cyclical features (`release_month`, `release_quarter`, `release_dow`) are encoded as sine/cosine pairs to preserve their circular nature. `pre_release_peak` is dropped here due to VIF > 10 (multicollinearity with `pre_release_premium_pct`).
+
+**Temporal train/test split (no random shuffle).** Data is sorted chronologically before splitting. The test set is the last 20% of records by release date. Random splitting would leak future market conditions into training data.
+
+**No PCA or LDA.** Skipped because input features are non-normal (PCA and LDA both assume or benefit from normality).
+
+#### Feature Selection
+
+**Filter method:** mutual information (MI) with the target + Pearson correlation, both MinMax-normalized and averaged into a combined relevance score. An elbow plot and cumulative score analysis determine the top-k cutoff.
+
+**Wrapper method:** Sequential Feature Selection (SFS), both forward and backward, applied to KNN, Logistic Regression, Random Forest, and Gradient Boosting using 5-fold cross-validation scored by ROC-AUC.
+
+**Stability analysis:** SFS + Bootstrap (30 resampled iterations) on the best model (Logistic Regression) to identify features that are consistently selected regardless of the specific training sample. Only stable features are included in the final model.
+
+#### Market Regime Detection & Model V2
+
+Analysis of the monthly `is_above_retail_90d` rate revealed a **structural break around January 2023**: the rate dropped from ~60–70% (pre-2023, "bull market") to ~30–40% (post-2023, "bear market"). This shift was confirmed statistically (Chi-squared test, p < 0.05).
+
+Training a single model across both regimes produces poor calibration on the post-2023 test set. **Model V2** addresses this with three changes:
+
+1. **New split point:** the cutoff is placed within the post-2023 period (at the 70th percentile of post-2023 dates), ensuring the test set reflects the current bear-market regime.
+
+2. **Rolling market context features:** two new feature families are computed without leakage:
+   - `market_rate_{N}d`: global % of sneakers above retail in the past N days (N ∈ {30, 60, 90, 180}).
+   - `brand_rate_{N}d`: same metric filtered to the same brand. NaNs (no prior history) are imputed with an expanding global mean.
+   - The 180-day window showed the highest correlation with the target for both families.
+
+3. **Walk-Forward Cross-Validation:** a custom `WalkForwardCV` class (expanding window, 5 folds, minimum 50% training set) replaces `StratifiedKFold`. This prevents any form of temporal leakage during hyperparameter search.
+
+#### Final Model
+
+**Algorithm:** Logistic Regression (L1 regularization, `liblinear` solver)
+
+**Hyperparameters (selected via GridSearchCV + Walk-Forward CV, optimizing precision):**
+
+| Parameter | Value |
+|---|---|
+| `C` | 0.1 |
+| `penalty` | L1 |
+| `solver` | liblinear |
+| `class_weight` | balanced |
+| `max_iter` | 2000 |
+
+**Final feature set (7 variables):**
+
+| Feature | Rationale |
+|---|---|
+| `retail_price` | Strong signal; higher retail prices correlate with lower above-retail probability |
+| `pre_release_premium_pct` | Most direct measure of pre-launch hype |
+| `brand_historical_rate` | Captures brand-level market track record |
+| `brand_Jordan` | Jordan brand dummy; consistently selected across bootstrap samples |
+| `num_pre_release_points` | Proxy for how closely the market tracked the pre-launch hype |
+| `market_rate_180d` | Encodes macro market conditions at time of release |
+| `brand_rate_180d` | Encodes brand-level momentum at time of release |
+
+---
+
+## Variable Dictionary (Clean Dataset)
+
+| Variable | Type | Description |
+|---|---|---|
+| `title` | string | Sneaker model name as it appears in the original source. |
+| `sales_series` | list[dict] | Price time series: `[{'xValue': iso_date, 'yValue': price}, ...]`. Includes pre- and post-release points. |
+| `retail_price` | float | Official retail (launch) price. |
+| `release_date` | datetime | Official release date. |
+| `brand` | string | Normalized brand (Nike, Jordan, Adidas, Yeezy, Puma, New Balance, ASICS, Vans, Onitsuka). |
+| `highest_value` | float | Max price reached **post-release** (speculation excluded). |
+| `pre_release_peak` | float | Max price reached **before release**. `0` if no pre-release data. |
+| `roi_pct` | float | `(highest_value − retail_price) / retail_price × 100` |
+| `current_value` | float | Most recent price in `sales_series` (last chronological point). |
+| `is_above_retail` | bool | `current_value > retail_price` |
+| `pre_release_premium_pct` | float | `(pre_release_peak − retail_price) / retail_price × 100`. `0` if no pre-release data. |
+| `days_to_peak` | int | Days from `release_date` to the date `highest_value` was reached. Always ≥ 0. |
+| `lowest_value_post_release` | float | Min price recorded after release. |
+| `hype_decay_pct` | float | `(highest_value − current_value) / highest_value × 100`. Higher = larger price collapse from peak. |
+| `price_volatility` | float | Std of post-release prices. Measures price stability after launch. |
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Solution |
+|---|---|---|
+| `❌ TOKEN EXPIRADO` | JWT expired (lasts 12h) | Renew token from DevTools |
+| `HTML exists but no data` | StockX blocked the download | Delete the `.html` file and re-run `copy_html.py` |
+| `HTTP 403` on API | Incorrect or expired token | Verify the token starts with `Bearer eyJ` |
+| `HTTP 429` on API | Rate limit hit | Script retries automatically with exponential backoff; wait |
+| Chrome does not open | Playwright missing Chrome | Run `python -m playwright install chrome` |
+| `_meta` fields are `null` | `__NEXT_DATA__` has a different structure | HTML fallback should cover it; inspect `errors` field in the JSON |
+
+---
+
+## Notes
+
+- The scraper saves the JSON **after each product**, so interruptions don't lose progress. Use `--skip-existing` to resume.
+- Request delays are random (Gaussian distribution, ~2–8 seconds) to mimic human behavior and reduce blocking risk.
+- `x-stockx-device-id` and `x-stockx-session-id` headers are rotated on each request to avoid fingerprinting.
