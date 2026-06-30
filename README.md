@@ -16,13 +16,17 @@ StockX_Project/
 ├── notebooks/
 │   ├── Data_Cleaning.ipynb        ← Cleaning, imputation, and feature engineering
 │   ├── EDA_1.ipynb                ← Univariate and bivariate exploratory analysis
-│   └── model_training.ipynb      ← Feature selection, model training, and evaluation
+│   ├── model_training.ipynb      ← Feature selection, model training, and evaluation
+│   └── using_the_model.ipynb     ← Loads the final model and runs predictions
 ├── docs/
 │   └── lista_urls.txt             ← URLs of sneakers to process
 ├── html_pages/                    ← Downloaded HTMLs (auto-generated)
 └── data/
     ├── sneakers_data.json         ← Raw scraper output (auto-generated)
-    └── clean_data.pkl             ← Cleaned dataset ready for modelling
+    ├── clean_data.pkl             ← Cleaned dataset ready for modelling
+    ├── ready_data.pkl             ← Preprocessed train/test split (model-ready)
+    ├── ref_test_lin.pkl           ← Reference columns (title, brand, dates) for the linear test set
+    └── bundle_above_retail.pkl    ← Deployment bundle: trained model + scaler + feature list + brand rates
 ```
 
 ---
@@ -215,10 +219,10 @@ Only four base columns are kept: `sales_series`, `title`, `retail_price`, `relea
 Rows where `sales_series` is empty AND both `retail_price` and `release_date` are null are removed (~9 rows). These have no recoverable signal.
 
 **4. Impute `release_date` from the time series**
-For the 7% of rows with a missing `release_date` but with a non-empty `sales_series`, the earliest `xValue` in the series is used as a proxy release date. Rows that are missing both `release_date` and `sales_series` are dropped (~74 rows, < 1.5% of the data).
+For the ~7% of rows with a missing `release_date` but with a non-empty `sales_series`, the earliest `xValue` in the series is used as a proxy release date. Rows that are missing both `release_date` and `sales_series` are dropped (~74 rows, < 1.5% of the data).
 
 **5. Clean and impute `retail_price`**
-The `$` and `,` characters are stripped and the field is cast to `float`. Missing values are filled with `median − std` (because there are very few NaN), a conservative estimate below the median that avoids overestimating unknown prices.
+The `$` and `,` characters are stripped and the field is cast to `float`. Missing values are filled with `median − std`, a conservative estimate below the median that avoids overestimating unknown prices.
 
 **6. Drop records without price history**
 After imputation, any remaining rows with an empty `sales_series` are dropped. A sneaker without a price series cannot contribute to any downstream analysis or modelling.
@@ -325,7 +329,7 @@ All engineered features use **only pre-release data** or information available a
 
 #### Technical Decisions
 
-**Non-normal distributions → RobustScaler.** Lilliefors tests confirm that numeric features are not normally distributed and contain significant outliers (IQR analysis shows 10–30% outlier rates on several features). `RobustScaler` (centers on median, scales by IQR) is used instead of `StandardScaler`. Outlieres are not deleted since they are hey on the context.
+**Non-normal distributions → RobustScaler.** Lilliefors tests confirm that numeric features are not normally distributed and contain significant outliers (IQR analysis shows 10–30% outlier rates on several features). `RobustScaler` (centers on median, scales by IQR) is used instead of `StandardScaler`.
 
 **Two parallel datasets.** Because tree-based and linear models have different preprocessing requirements, two copies of the data are maintained throughout:
 
@@ -344,26 +348,28 @@ All engineered features use **only pre-release data** or information available a
 
 **Stability analysis:** SFS + Bootstrap (30 resampled iterations) on the best model (Logistic Regression) to identify features that are consistently selected regardless of the specific training sample. Only stable features are included in the final model.
 
-#### Market Regime Detection & Model V2
+#### Market Regime Detection & Model V2 (experiment, not deployed)
 
 Analysis of the monthly `is_above_retail_90d` rate revealed a **structural break around January 2023**: the rate dropped from ~60–70% (pre-2023, "bull market") to ~30–40% (post-2023, "bear market"). This shift was confirmed statistically (Chi-squared test, p < 0.05).
 
-Training a single model across both regimes produces poor calibration on the post-2023 test set. **Model V2** addresses this with three changes:
+To test whether explicitly modeling this regime shift would help, **Model V2** was built with three changes:
 
 1. **New split point:** the cutoff is placed within the post-2023 period (at the 70th percentile of post-2023 dates), ensuring the test set reflects the current bear-market regime.
 
-2. **Rolling market context features:** two new feature families are computed without leakage:
+2. **Rolling market context features:** two new feature families, computed without leakage:
    - `market_rate_{N}d`: global % of sneakers above retail in the past N days (N ∈ {30, 60, 90, 180}).
-   - `brand_rate_{N}d`: same metric filtered to the same brand. NaNs (no prior history) are imputed with an expanding global mean.
+   - `brand_rate_{N}d`: same metric filtered to the same brand. NaNs (no prior history) imputed with an expanding global mean.
    - The 180-day window showed the highest correlation with the target for both families.
 
-3. **Walk-Forward Cross-Validation:** a custom `WalkForwardCV` class (expanding window, 5 folds, minimum 50% training set) replaces `StratifiedKFold`. This prevents any form of temporal leakage during hyperparameter search.
+3. **Walk-Forward Cross-Validation:** a custom `WalkForwardCV` class (expanding window, 5 folds, minimum 50% training set) replaces `StratifiedKFold`, preventing temporal leakage during hyperparameter search.
 
-#### Final Model
+**Result: Model V2 (7 features, rolling market context) underperformed Model V1 (5 features) on the held-out test set.** The added market/brand rolling-rate features did not generalize better despite the more sophisticated validation scheme, so **V1 was kept as the deployed model**. V2 remains in the codebase as a documented experiment.
+
+#### Final Model (V1 — deployed)
 
 **Algorithm:** Logistic Regression (L1 regularization, `liblinear` solver)
 
-**Hyperparameters (selected via GridSearchCV + Walk-Forward CV, optimizing precision):**
+**Hyperparameters (selected via GridSearchCV + Stratified CV, optimizing precision):**
 
 | Parameter | Value |
 |---|---|
@@ -373,7 +379,7 @@ Training a single model across both regimes produces poor calibration on the pos
 | `class_weight` | balanced |
 | `max_iter` | 2000 |
 
-**Final feature set (7 variables):**
+**Final feature set (5 variables):**
 
 | Feature | Rationale |
 |---|---|
@@ -382,8 +388,56 @@ Training a single model across both regimes produces poor calibration on the pos
 | `brand_historical_rate` | Captures brand-level market track record |
 | `brand_Jordan` | Jordan brand dummy; consistently selected across bootstrap samples |
 | `num_pre_release_points` | Proxy for how closely the market tracked the pre-launch hype |
-| `market_rate_180d` | Encodes macro market conditions at time of release |
-| `brand_rate_180d` | Encodes brand-level momentum at time of release |
+
+#### Decision Threshold Optimization
+
+Beyond the default 0.5 cutoff, the test-set probability output is swept across thresholds (0.10–0.90) to find operating points aligned with different business priorities:
+
+| Criterion | Logic |
+|---|---|
+| **A — Max F1** | Threshold that maximizes the harmonic mean of precision and recall. |
+| **B — Recall-first** | Highest precision achievable while keeping recall ≥ 0.60 (favors catching most above-retail sneakers, tolerating false positives). |
+| **C — Precision-first** | Highest recall achievable while keeping precision ≥ 0.75 (favors confidence in positive predictions, e.g. for purchase recommendations). |
+
+The right threshold depends on use case: a resale-flipping recommendation tool should favor precision (criterion C), while a broad market-monitoring dashboard might favor recall (criterion B).
+
+#### Ranking Quality (Top-K Analysis)
+
+Beyond binary classification, the model's predicted probabilities were evaluated as a **ranking signal**: sorting test-set sneakers by `y_proba` and checking the real above-retail rate within the top-K highest-confidence predictions.
+
+**Test set base rate: 43.8%**
+
+| K | Above-retail rate in top-K | Lift |
+|---|---|---|
+| 10 | 90.0% | 2.06x |
+| 25 | 96.0% | 2.19x |
+| 50 | 94.0% | 2.15x |
+| 100 | 85.0% | 1.94x |
+| 200 | 71.5% | 1.63x |
+
+The model is strongest at the very top of the ranking: its top 25 most-confident predictions are correct 96% of the time (2.19x better than random), making it well suited for "best bets" style recommendations rather than only blanket binary classification. Lift decays gradually as K grows, which is expected — wider nets pull in lower-confidence (riskier) candidates.
+
+---
+
+## Deployment / Inference
+
+### `using_the_model.ipynb` — Using the Trained Model
+
+Loads the cleaned and split data (`data/ready_data.pkl`, `data/ref_test_lin.pkl`), refits the same preprocessing pipeline used in training (RobustScaler on numeric features, one-hot encoding of `brand_grouped`, cyclical encoding of date features), and trains the final V1 Logistic Regression model.
+
+**Deployment bundle.** The trained model, its fitted scaler, the final feature list, and precalculated brand historical rates are packaged into a single artifact for reuse without retraining:
+
+```python
+bundle = {
+    'modelo': modelo_final,
+    'scaler': scaler_lin,
+    'variables': variables_finales,
+    'brand_historical_rates': {...},  # precomputed per-brand rates from training data
+}
+joblib.dump(bundle, 'bundle_above_retail.pkl')
+```
+
+**Interactive predictor.** The notebook includes a simple CLI-style predictor: the user selects a brand from a list and enters the remaining feature values, the bundle is loaded, inputs are scaled with the saved `scaler`, and the model outputs a probability that the sneaker will trade above retail at 90 days. This is intended as a lightweight reference implementation for serving the model outside the notebook (e.g. wrapping it in a script or API).
 
 ---
 
