@@ -2,13 +2,51 @@
 
 End-to-end pipeline that scrapes sneaker data from StockX, cleans it, performs exploratory analysis, and trains a machine learning model to predict whether a sneaker's resale price will exceed its retail price 90 days after launch.
 
+
+if you want skip the scraping proccess download the json from [here](https://drive.google.com/file/d/1mnDucHOcMrMPj2X0U5etTqgJz7Bad34J/view?usp=sharing)
+
+---
+
+## Results at a Glance
+
+**Model:** Logistic Regression (L1, 5 features) · **Target:** `is_above_retail_90d` · **Test set:** 818 sneakers, chronological split
+
+| Metric | Score |
+|---|---|
+| Precision | 0.70 |
+| Recall | 0.44 |
+| F1 | 0.54 |
+| ROC-AUC | 0.75 |
+| Accuracy | 0.67 |
+
+```
+              precision    recall  f1-score   support
+below_retail       0.66      0.85      0.75       460
+above_retail       0.70      0.44      0.54       358
+    accuracy                           0.67       818
+```
+
+**As a ranking signal, the model is significantly stronger.** Sorting predictions by confidence and looking at the real above-retail rate within the top-K:
+
+| K | Above-retail rate in top-K | Lift vs. base rate (43.8%) |
+|---|---|---|
+| 10 | 90.0% | 2.06x |
+| 25 | 96.0% | 2.19x |
+| 50 | 94.0% | 2.15x |
+| 100 | 85.0% | 1.94x |
+| 200 | 71.5% | 1.63x |
+
+**Takeaway:** at the default threshold the model is conservative (high precision, lower recall) — when it predicts "above retail," it's right 70% of the time, but it misses over half of the true above-retail sneakers. Where it really shines is at the top of the ranking: its 25 most confident predictions are correct 96% of the time, making it best suited for "best bets" recommendations rather than blanket classification. See [Decision Threshold Optimization](#decision-threshold-optimization) for how to trade precision for recall depending on use case.
+
 ---
 
 ## Project Structure
 
 ```
 StockX_Project/
-├── main.py                        ← Orchestrator: runs the full pipeline
+├── main.py
+├── serial_downloads.py            ← Orchestrator: runs the full pipeline
+├── config.py
 ├── utils/
 │   ├── search_urls.py             ← Phase 1: extracts URLs from a StockX category
 │   ├── copy_html.py               ← Phase 2: downloads the HTML of each product page
@@ -16,8 +54,14 @@ StockX_Project/
 ├── notebooks/
 │   ├── Data_Cleaning.ipynb        ← Cleaning, imputation, and feature engineering
 │   ├── EDA_1.ipynb                ← Univariate and bivariate exploratory analysis
-│   ├── model_training.ipynb      ← Feature selection, model training, and evaluation
-│   └── using_the_model.ipynb     ← Loads the final model and runs predictions
+│   ├── model_training.ipynb       ← Feature selection, model training, and evaluation
+│   ├── bundle_above_retail.pkl    ← Deployment bundle: trained model + scaler + feature list + brand rates
+│   └── using_the_model.ipynb      ← Loads the final model and runs predictions
+├── pickle_cache/                  ← Faster notebook runing
+│   ├── sfs_train_lin_cache.pkl
+│   ├── sfs_stability_train_lin_LogisticRegression.pkl
+│   └── sfs_train_modelo_cache.pkl
+│
 ├── docs/
 │   └── lista_urls.txt             ← URLs of sneakers to process
 ├── html_pages/                    ← Downloaded HTMLs (auto-generated)
@@ -25,22 +69,54 @@ StockX_Project/
     ├── sneakers_data.json         ← Raw scraper output (auto-generated)
     ├── clean_data.pkl             ← Cleaned dataset ready for modelling
     ├── ready_data.pkl             ← Preprocessed train/test split (model-ready)
-    ├── ref_test_lin.pkl           ← Reference columns (title, brand, dates) for the linear test set
-    └── bundle_above_retail.pkl    ← Deployment bundle: trained model + scaler + feature list + brand rates
+    └──  ref_test_lin.pkl          ← Reference columns (title, brand, dates) for the linear test set
+
 ```
+[download_pkls](https://drive.google.com/drive/folders/1qF40KKqti4V2d5HqIvhFlcwkQMioOX-I?usp=sharing)
 
 ---
 
-## Requirements
+## Installation
 
-**Python 3.11+** and the following libraries:
+**Requires Python 3.11+** and Google Chrome installed on the system (Chrome is required by `copy_html.py` for browser automation).
+
+Choose one of the two options below.
+
+### Option A — Pipenv (recommended)
 
 ```bash
-pip install curl_cffi beautifulsoup4 playwright pandas numpy seaborn matplotlib scikit-learn statsmodels scipy ruptures joblib tqdm
+pip install pipenv
+
+# Install dependencies into an isolated virtual environment
+pipenv install
+
+# Activate the environment
+pipenv shell
+
+# Install Chrome for Playwright (one-time setup)
 python -m playwright install chrome
 ```
 
-**Google Chrome** must be installed on the system (required by `copy_html.py`).
+To add a new dependency later: `pipenv install <package>`. The `Pipfile.lock` keeps installs reproducible across machines.
+
+### Option B — pip + venv
+
+```bash
+# Create the virtual environment
+python -m venv .venv
+
+# Activate it
+source .venv/bin/activate        # macOS / Linux
+.venv\Scripts\activate           # Windows (PowerShell: .venv\Scripts\Activate.ps1)
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install Chrome for Playwright (one-time setup)
+python -m playwright install chrome
+```
+
+To leave the environment at any point: `deactivate`.
 
 ---
 
@@ -63,7 +139,10 @@ The scraper needs a JWT from your StockX session to access the GraphQL API.
 
 ```bash
 # Option A — Environment variable (recommended, keeps it out of the code)
-export STOCKX_TOKEN="Bearer eyJhbGci..."
+(into .env)
+
+STOCKX_TOKEN="Bearer eyJhbGci..."
+URL_LIST_NAME=lista1_urls.txt
 
 # Option B — Hardcoded in scraper.py
 # Edit the line AUTHORIZATION = "Bearer YOUR_TOKEN_HERE" in utils/scraper.py
@@ -96,7 +175,7 @@ Runs all three phases in sequence:
 
 ```bash
 cd StockX_Project
-python main.py
+python serial_downloads.py
 ```
 
 With options:
@@ -388,6 +467,16 @@ To test whether explicitly modeling this regime shift would help, **Model V2** w
 | `brand_historical_rate` | Captures brand-level market track record |
 | `brand_Jordan` | Jordan brand dummy; consistently selected across bootstrap samples |
 | `num_pre_release_points` | Proxy for how closely the market tracked the pre-launch hype |
+
+**Test set evaluation** (818 sneakers, chronological holdout — see [Results at a Glance](#results-at-a-glance) for the summary table):
+
+```
+Confusion matrix:
+[[392  68]
+ [199 159]]
+```
+
+Reading the matrix: of 460 sneakers that stayed at or below retail, the model correctly flagged 392 (true negatives) and missed 68 (false positives). Of 358 sneakers that went above retail, it correctly caught 159 (true positives) but missed 199 (false negatives) — the main source of the model's relatively low recall (0.44).
 
 #### Decision Threshold Optimization
 

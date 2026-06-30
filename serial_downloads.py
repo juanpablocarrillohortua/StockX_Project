@@ -9,7 +9,13 @@ RANGO_FIN = 25  # Cambia esto al número de página final que desees (ej. 5 ejec
 DELAY_SEGUNDOS = 2  # Tiempo de espera entre ejecuciones para evitar bloqueos
 
 urls = [
-    "https://stockx.com/brands/puma?page="
+    "https://stockx.com/brands/adidas?category=sneakers&page=",
+    "https://stockx.com/brands/jordan?category=sneakers&page=",
+    "https://stockx.com/brands/asics?category=sneakers&page=",
+    "https://stockx.com/brands/new-balance?category=sneakers&page=",
+    "https://stockx.com/brands/nike?category=sneakers&page=",
+    "https://stockx.com/brands/yeezy?category=sneakers&page=",
+    "https://stockx.com/brands/puma?page=",
     ]
 
 for url_base in urls:
@@ -18,9 +24,6 @@ for url_base in urls:
     print(f" INICIANDO PROCESAMIENTO DE MARCA: {marca.upper()}")
     print(f"=========================================")
     for i in range(RANGO_INICIO, RANGO_FIN + 1):
-        if url_base == urls[0] and i < 18:
-            print(f"saltando paso de {marca} - {i}")
-            continue
         print(f"\n--- Iniciando raspado de la página {i} ---")
 
         # Construimos la URL dinámica

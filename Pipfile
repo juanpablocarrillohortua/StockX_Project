@@ -1,0 +1,27 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+numpy = "*"
+seaborn = "*"
+matplotlib = "*"
+ruptures = "*"
+scipy = "*"
+statsmodels = "*"
+scikit-learn = "*"
+tqdm = "*"
+joblib = "*"
+playwright = "*"
+beautifulsoup4 = "*"
+curl-cffi = "*"
+pydantic = "*"
+pydantic-settings = "*"
+
+[dev-packages]
+ipykernel = "*"
+
+[requires]
+python_version = "3.13"
