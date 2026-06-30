@@ -19,6 +19,8 @@ beautifulsoup4 = "*"
 curl-cffi = "*"
 pydantic = "*"
 pydantic-settings = "*"
+pycodestyle = "*"
+nbqa = "*"
 
 [dev-packages]
 ipykernel = "*"

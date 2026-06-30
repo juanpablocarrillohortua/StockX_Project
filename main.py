@@ -5,20 +5,22 @@ from pathlib import Path
 
 from config import settings
 
+
 def run_script(command: list[str]) -> None:
-    """Ejecuta un comando en un subproceso y transmite la salida en tiempo real."""
-    print(f"\n🚀 Ejecutando: {' '.join(command)}")
+    """Spawn a subprocess execute a command and stream stdout in real-time."""
+    print(f"\n🚀 Running: {' '.join(command)}")
     try:
-        # Se usa sys.executable para garantizar que use el mismo entorno virtual (venv)
+        # Use sys.executable to ensure the subprocess runs within the current
+        # virtual environment (venv).
         result = subprocess.run([sys.executable] + command, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ Error crítico en el subproceso: {' '.join(command)}")
+        print(f"\n❌ Critical error in the subprocess: {' '.join(command)}")
         sys.exit(e.returncode)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Pipeline Unificado de Scraping para StockX",
+        description="Unified Scraping Pipeline for StockX",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -27,43 +29,48 @@ def main() -> None:
         "--url",
         type=str,
         default="https://stockx.com/brands/jordan",
-        help="URL objetivo de la categoría de StockX (Fase 1)",
+        help="Target URL for the StockX category (Phase 1)",
     )
     parser.add_argument(
         "--archivo",
         type=str,
         default=str(Path('docs')/Path(settings.URL_LIST_NAME)),
-        help="Nombre del archivo TXT con las URLs (Fase 1 y 2)",
+        help="TXT file name with URLs (Phase 1 and 2)",
     )
 
-    # 2. Argumentos compartidos o específicos de las fases de descarga/scraping
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Omite HTMLs ya descargados y slugs ya procesados en JSON (Fases 2 y 3)",
+        help="Skip already downloaded HTMLs and slugs already processed",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
         metavar="N",
-        help="Procesar solo las primeras N URLs/slugs (Fases 2 y 3 — Útil para pruebas)",
+        help="Process only the first N URLs/slugs",
     )
 
     args = parser.parse_args()
 
     print("==================================================")
-    print("      INICIANDO PIPELINE COMPLETO DE STOCKX       ")
+    print("      STARTING FULL STOCKX PIPELINE       ")
     print("==================================================")
 
     # -------------------------------------------------------------------------
-    # FASE 1: Extracción de URLs desde catálogo
+    # PHASE 1: Extract URLs from the catalog
     # -------------------------------------------------------------------------
-    cmd_fase1 = ["utils/search_urls.py", "--url", args.url, "--archivo", args.archivo]
+    cmd_fase1 = [
+        "utils/search_urls.py",
+        "--url",
+        args.url,
+        "--archivo",
+        args.archivo
+        ]
     run_script(cmd_fase1)
 
     # -------------------------------------------------------------------------
-    # FASE 2: Descarga de páginas HTML
+    # PHASE 2: Download HTML pages
     # -------------------------------------------------------------------------
     cmd_fase2 = ["utils/copy_html.py"]
     if args.skip_existing:
@@ -74,9 +81,9 @@ def main() -> None:
     run_script(cmd_fase2)
 
     # -------------------------------------------------------------------------
-    # FASE 3: Cruce de HTML local + GraphQL API
+    # PHASE 3: Merge local HTML data with GraphQL API payloads
     # -------------------------------------------------------------------------
-    # NOTA: Ajusta 'scraping_final.py' por el nombre real de tu tercer archivo
+
     cmd_fase3 = ["utils/scraper.py"]
     if args.skip_existing:
         cmd_fase3.append("--skip-existing")
@@ -85,7 +92,7 @@ def main() -> None:
 
     run_script(cmd_fase3)
 
-    print("\n✅ ¡Pipeline completado con éxito!")
+    print("\n✅ Pipeline executed successfully!")
 
 
 if __name__ == "__main__":

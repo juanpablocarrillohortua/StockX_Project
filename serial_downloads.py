@@ -3,10 +3,10 @@ import time
 from pathlib import Path
 import sys
 
-# Configuración
+# Config
 RANGO_INICIO = 1
-RANGO_FIN = 25  # Cambia esto al número de página final que desees (ej. 5 ejecutará 1, 2, 3, 4)
-DELAY_SEGUNDOS = 2  # Tiempo de espera entre ejecuciones para evitar bloqueos
+RANGO_FIN = 25
+DELAY_SEGUNDOS = 2
 
 urls = [
     "https://stockx.com/brands/adidas?category=sneakers&page=",
@@ -21,27 +21,23 @@ urls = [
 for url_base in urls:
     marca = url_base.split("/brands/")[1].split("?")[0]
     print(f"\n=========================================")
-    print(f" INICIANDO PROCESAMIENTO DE MARCA: {marca.upper()}")
+    print(f"🚀 INITIALIZING MARQUEE PROCESSING: {marca.upper()}")
     print(f"=========================================")
     for i in range(RANGO_INICIO, RANGO_FIN + 1):
-        print(f"\n--- Iniciando raspado de la página {i} ---")
+        print(f"\n--- Initializing scraping for page {i} ---")
 
-        # Construimos la URL dinámica
         url_dinamica = f"{url_base}{i}"
 
-        # Definimos el comando como una lista para evitar problemas de escape de caracteres
         comando = [sys.executable, "main.py", "--url", url_dinamica]
 
         try:
-            # Ejecuta el comando y espera a que termine antes de pasar al siguiente
             resultado = subprocess.run(comando, check=True, text=True)
-            print(f"Página {i} completada con éxito.")
+            print(f"Page {i} processed successfully.")
         except subprocess.CalledProcessError as e:
-            print(f"Error al ejecutar la página {i}: {e}")
+            print(f"Error processing page {i}: {e}")
 
-        # Pausa opcional para no saturar el servidor consecutivamente
         if i < RANGO_FIN:
-            print(f"Esperando {DELAY_SEGUNDOS} segundos antes de la siguiente página...")
+            print(f"Throttling request: Sleeping for {DELAY_SEGUNDOS} seconds before the next page...")
             time.sleep(DELAY_SEGUNDOS)
 
-print("\n¡Proceso de automatización finalizado!")
+print("\n Automation pipeline finalized successfully!")

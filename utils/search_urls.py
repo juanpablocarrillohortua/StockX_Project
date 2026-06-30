@@ -1,22 +1,22 @@
 """
 StockX_Project/utils/search_urls.py
 -------------------------------------
-Extrae URLs de productos desde una página de categoría de StockX.
+Extracts product URLs from a StockX category page.
 
-PROBLEMAS del original que corrige este script:
-  1. wait_until="networkidle" → StockX nunca queda en red quieta (analytics,
-     websockets, etc.), causando TimeoutError. Se reemplaza por esperar un
-     selector concreto que confirme que los productos ya cargaron.
+PROBLEMS in the original that this script fixes:
+  1. wait_until="networkidle" → StockX never settles into a quiet network state
+     (analytics, websockets, etc.), causing a TimeoutError. It's replaced by
+     waiting for a specific selector that confirms the products have loaded.
 
-  2. Solo capturaba los productos visibles sin hacer scroll → la página usa
-     scroll infinito y carga más productos al bajar. Este script hace scroll
-     progresivo hasta que deja de aparecer contenido nuevo.
+  2. Only captured the visible products without scrolling → the page uses
+     infinite scroll and loads more products as you scroll down. This script
+     does progressive scrolling until no new content appears.
 
-Uso:
+Usage:
     cd StockX_Project
-    python utils/search_urls.py --url https://stockx.com/brands/nike?category=sneakers
-    python utils/search_urls.py --url https://stockx.com/brands/jordan --archivo jordan.txt
-    python utils/search_urls.py --url https://stockx.com/brands/nike --max-scrolls 20
+    python utils/search_urls.py --url https://stockx.com/brands/...
+    python utils/search_urls.py --url https://stockx.com/. --archivo jordan.txt
+    python utils/search_urls.py --url https://stockx.com/... --max-scrolls 20
 """
 
 import argparse
@@ -29,17 +29,17 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 from config import settings
 
 
-DEFAULT_OUTPUT = str(Path(__file__).resolve().parent.parent / "docs" / settings.URL_LIST_NAME)
+DEFAULT_OUTPUT = str(Path(__file__).resolve().parent.parent / "docs" / settings.URL_LIST_NAME)  # noqa: E501
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURACIÓN
+# CONFIGURATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Selector que confirma que las tarjetas de producto ya están en el DOM
-PRODUCT_CARD_SELECTOR = "a[href*='/'][data-testid], a.css-w6gm5p, div[data-component='ProductTile'] a, a[href^='https://stockx.com/']:not([href*='#'])"
+# Selector that confirms the product cards are already in the DOM
+PRODUCT_CARD_SELECTOR = "a[href*='/'][data-testid], a.css-w6gm5p, div[data-component='ProductTile'] a, a[href^='https://stockx.com/']:not([href*='#'])"  # noqa: E501
 
-# Páginas/secciones que NO son productos individuales
+# Pages/sections that are NOT individual products
 URL_EXCLUSIONS = {
     "/about", "/help", "/faq", "/login", "/signup", "/sell", "/buy",
     "/terms", "/privacy", "/news", "/sneakers", "/streetwear", "/watches",
@@ -47,30 +47,30 @@ URL_EXCLUSIONS = {
     "javascript:", "google.com", "support.stockx", "stockx.com/#",
 }
 
-# Tiempo de espera entre scrolls (ms) — más alto = más seguro contra bloqueos
+# Wait time between scrolls (ms) — higher = safer against blocking
 SCROLL_PAUSE_MS = 2000
 
-# Máximo de scrolls por defecto (cada scroll ≈ una pantalla de productos)
+# Default maximum number of scrolls (each scroll ≈ one screen of products)
 DEFAULT_MAX_SCROLLS = 15
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LÓGICA PRINCIPAL
+# MAIN LOGIC
 # ─────────────────────────────────────────────────────────────────────────────
 
 def is_product_url(url: str) -> bool:
     """
-    Devuelve True si la URL parece ser un producto individual de StockX.
-    Estructura esperada: https://stockx.com/<slug>  (exactamente 4 partes al dividir por /)
+    Returns True if the URL appears to be an individual StockX product.
+    Expected structure: https://stockx.com/<slug>  (exactly 4)
     """
     url_base = url.split("?")[0].rstrip("/")
-    parts    = url_base.split("/")
+    parts = url_base.split("/")
 
     if "stockx.com" not in url_base:
         return False
     if len(parts) != 4:          # ['https:', '', 'stockx.com', 'slug']
         return False
-    if len(parts[3]) < 4:        # slugs muy cortos no son productos
+    if len(parts[3]) < 4:        # very short slugs aren't products
         return False
     if any(exc in url_base for exc in URL_EXCLUSIONS):
         return False
@@ -80,14 +80,14 @@ def is_product_url(url: str) -> bool:
 
 async def scroll_to_bottom(page, max_scrolls: int) -> int:
     """
-    Hace scroll progresivo hasta el final de la página o hasta max_scrolls.
-    Devuelve el número de scrolls realizados.
+    Performs progressive scrolling until the end of the page.
+    Returns the number of scrolls performed.
     """
     prev_height = 0
-    scrolls     = 0
+    scrolls = 0
 
     for i in range(max_scrolls):
-        # Scroll hasta el final del documento
+        # Scroll to the end of the document
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
         await page.wait_for_timeout(SCROLL_PAUSE_MS)
 
@@ -95,14 +95,14 @@ async def scroll_to_bottom(page, max_scrolls: int) -> int:
         scrolls = i + 1
 
         if current_height == prev_height:
-            print(f"  → Sin contenido nuevo tras scroll {scrolls} — fin de página.")
+            print(f"  → No new content after scroll {scrolls} — end of page.")
             break
 
         prev_height = current_height
         productos_actuales = await page.evaluate(
             "document.querySelectorAll('a[href]').length"
         )
-        print(f"  → Scroll {scrolls}/{max_scrolls} | links en DOM: {productos_actuales}")
+        print(f"  → Scroll {scrolls}/{max_scrolls} | links in DOM: {productos_actuales}")  # noqa: E501
 
     return scrolls
 
@@ -113,7 +113,7 @@ async def extraer_urls_desde_catalogo(
     max_scrolls: int = DEFAULT_MAX_SCROLLS,
 ) -> None:
     async with async_playwright() as p:
-        print("🔄 Abriendo navegador...")
+        print("🔄 Opening browser...")
         browser = await p.chromium.launch(
             headless=False,
             channel="chrome",
@@ -136,30 +136,36 @@ async def extraer_urls_desde_catalogo(
             timezone_id="America/New_York",
         )
 
-        # Evasión anti-bot
+        # Anti-bot evasion
         await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins',   { get: () => [1, 2, 3] });
-            window.chrome = { runtime: {} };
-        """)
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3]
+                    });
+                    window.chrome = { runtime: {} };
+                """)
 
         page = await context.new_page()
 
-        # ── Navegación ────────────────────────────────────────────────────────
-        # "domcontentloaded" es suficiente y nunca hace timeout en StockX.
-        # Luego esperamos un selector concreto que confirme que hay productos.
-        print(f"🌐 Navegando a: {url_seccion}")
+        # ── Navigation ───────────────────────────────────────────────────────
+        # "domcontentloaded" is enough and never times out on StockX.
+        print(f"🌐 Navigating to: {url_seccion}")
         try:
-            await page.goto(url_seccion, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(
+                url_seccion,
+                wait_until="domcontentloaded",
+                timeout=60000
+                )
         except PWTimeout:
-            print("⚠  Timeout en goto — la página cargó parcialmente, continuando...")
+            print("⚠  Timeout on goto — the page partially loaded, continuing...")  # noqa: E501
 
-        # Esperar a que aparezca al menos un link de producto en el DOM
-        print("⏳ Esperando que carguen los productos...")
+        # Wait until at least one product link appears in the DOM
+        print("⏳ Waiting for products to load...")
         try:
-            # Intentamos varios selectores que StockX ha usado en distintas versiones
             await page.wait_for_selector(
-                "a[href*='stockx.com/'],"   # cualquier link de StockX
+                "a[href*='stockx.com/'],"   # any StockX link
                 "div[class*='ProductTile'],"
                 "div[data-component*='Tile'],"
                 "div[class*='product-tile']",
@@ -167,20 +173,20 @@ async def extraer_urls_desde_catalogo(
                 state="attached",
             )
         except PWTimeout:
-            print("⚠  No se detectaron tarjetas de producto — puede ser un captcha.")
-            print("   Comprueba la ventana de Chrome y resuelve el captcha si aparece.")
-            # Damos tiempo para resolución manual
+            print("⚠  No product cards detected — could be a captcha.")
+            print("   Check the Chrome window and solve the captcha if it appears.")  # noqa: E501
+            # Give time for manual resolution
             await page.wait_for_timeout(15000)
 
-        # Pequeña pausa inicial para que terminen las animaciones de carga
+        # Small initial pause for loading animations to finish
         await page.wait_for_timeout(2500)
 
-        # ── Scroll infinito ───────────────────────────────────────────────────
-        print(f"\n📜 Iniciando scroll (máximo {max_scrolls} vueltas)...")
+        # ── Infinite scroll ──────────────────────────────────────────────────
+        print(f"\n📜 Starting scroll (maximum {max_scrolls} passes)...")
         total_scrolls = await scroll_to_bottom(page, max_scrolls)
-        print(f"   Scroll completado ({total_scrolls} vueltas)\n")
+        print(f"   Scroll completed ({total_scrolls} passes)\n")
 
-        # ── Extracción de URLs ────────────────────────────────────────────────
+        # ── URL extraction ────────────────────────────────────────────────
         todos_los_enlaces: list[str] = await page.evaluate("""
             () => Array.from(document.querySelectorAll('a[href]'))
                        .map(a => a.href)
@@ -194,40 +200,40 @@ async def extraer_urls_desde_catalogo(
 
         await browser.close()
 
-        # ── Guardar resultado ─────────────────────────────────────────────────
+        # ── Save result ─────────────────────────────────────────────────
         if not urls_limpias:
-            print("❌ No se encontraron URLs de productos.")
-            print("   Posibles causas:")
-            print("   · StockX cambió su estructura HTML")
-            print("   · La página requería login o captcha")
-            print("   · La URL de categoría no contiene productos directos")
+            print("❌ No product URLs found.")
+            print("   Possible causes:")
+            print("   · StockX changed its HTML structure")
+            print("   · The page required login or a captcha")
+            print("   · The category URL doesn't contain direct products")
             sys.exit(1)
 
         output_path = Path(archivo_salida)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Si ya existe el archivo, hacer merge con URLs previas
+        # If the file already exists, merge with previous URLs
         existing: set[str] = set()
         if output_path.exists():
             existing = {
-                l.strip() for l in output_path.read_text(encoding="utf-8").splitlines()
-                if l.strip() and not l.startswith("#")
+                line.strip() for line in output_path.read_text(encoding="utf-8").splitlines()  # noqa: E501
+                if line.strip() and not line.startswith("#")
             }
             if existing:
-                print(f"📂 Archivo existente con {len(existing)} URLs — haciendo merge...")
+                print(f"📂 Existing file with {len(existing)} URLs — merging...")  # noqa: E501
 
         merged = existing | urls_limpias
         nuevas = urls_limpias - existing
 
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"# Generado por search_urls.py — {url_seccion}\n")
+            f.write(f"# Generated by search_urls.py — {url_seccion}\n")
             for url in sorted(merged):
                 f.write(f"{url}\n")
 
-        print(f"✅ Escaneo completado:")
-        print(f"   Nuevas URLs encontradas : {len(nuevas)}")
-        print(f"   Total en archivo        : {len(merged)}")
-        print(f"   Guardado en             : {output_path}")
+        print(f"✅ Scan completed:")
+        print(f"   New URLs found      : {len(nuevas)}")
+        print(f"   Total in file       : {len(merged)}")
+        print(f"   Saved to            : {output_path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -236,33 +242,33 @@ async def extraer_urls_desde_catalogo(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Extractor de URLs de productos desde catálogo de StockX",
+        description="Product URL extractor from StockX catalog",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ejemplos:
-  python utils/search_urls.py --url https://stockx.com/brands/nike?category=sneakers
-  python utils/search_urls.py --url https://stockx.com/brands/jordan --max-scrolls 30
-  python utils/search_urls.py --url https://stockx.com/brands/adidas --archivo docs/adidas.txt
+Examples:
+  python utils/search_urls.py --url https://stockx.com/brands/nike?category=sneakers  # noqa: E501
+  python utils/search_urls.py --url https://stockx.com/brands/jordan --max-scrolls 30  # noqa: E501
+  python utils/search_urls.py --url https://stockx.com/brands/adidas --archivo docs/adidas.txt  # noqa: E501
         """,
     )
     parser.add_argument(
         "--url",
         type=str,
         default="https://stockx.com/brands/jordan",
-        help="URL de la categoría o marca en StockX",
+        help="StockX category or brand URL",
     )
     parser.add_argument(
         "--archivo",
         type=str,
         default=DEFAULT_OUTPUT,
-        help="Ruta del archivo TXT de salida",
+        help="Path to the output TXT file",
     )
     parser.add_argument(
         "--max-scrolls",
         type=int,
         default=DEFAULT_MAX_SCROLLS,
         metavar="N",
-        help=f"Número máximo de scrolls antes de parar (default: {DEFAULT_MAX_SCROLLS})",
+        help=f"Maximum number of scrolls before stopping (default: {DEFAULT_MAX_SCROLLS})",  # noqa: E501
     )
 
     args = parser.parse_args()
