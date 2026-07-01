@@ -1,9 +1,10 @@
-.PHONY: help clean install quality quality-utils quality-main quality-notebooks test validate
+.PHONY: help clean install quality quality-utils quality-main quality-notebooks test validate docker-build docker-run
 
 .DEFAULT_GOAL := help
 
 PY_MODULES = main.py utils
 NOTEBOOKS  = notebooks
+IMAGE_NAME = stockx-predictor
 
 help: ## display this help message
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -31,3 +32,9 @@ test: clean ## run tests
 	pytest tests
 
 validate: quality test ## run quality checks and tests
+
+docker-build: ## build the Docker image for the Streamlit prediction app
+	docker build -t $(IMAGE_NAME) .
+
+docker-run: ## run the Streamlit prediction app in a container on localhost:8501
+	docker run -p 8501:8501 $(IMAGE_NAME)

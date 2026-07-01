@@ -21,6 +21,7 @@ pydantic = "*"
 pydantic-settings = "*"
 pycodestyle = "*"
 nbqa = "*"
+streamlit = "*"
 
 [dev-packages]
 ipykernel = "*"

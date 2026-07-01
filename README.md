@@ -7,6 +7,32 @@ if you want skip the scraping proccess download the json from [here](https://dri
 
 ---
 
+## How to use the model
+
+Want predictions without running the scraping or training pipeline? A pre-trained model is committed with this repo (`notebooks/bundle_above_retail.pkl`) and served through a small Streamlit app in a Docker container.
+
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) installed. No Python environment, scraping, or training required.
+
+### Build the image
+
+```bash
+docker build -t stockx-predictor .
+```
+
+### Run the container
+
+```bash
+docker run -p 8501:8501 stockx-predictor
+```
+
+### Open the app
+
+Go to [http://localhost:8501](http://localhost:8501). Pick a brand, enter the retail price, the pre-release peak price (if any), and the number of pre-release price points, then click **Predict** to see the probability that the sneaker resells above retail 90 days after launch.
+
+> Prefer running it without Docker? `pip install -r app/requirements.txt && streamlit run app/app.py` works the same way locally.
+
+---
+
 ## Results at a Glance
 
 **Model:** Logistic Regression (L1, 5 features) · **Target:** `is_above_retail_90d` · **Test set:** 818 sneakers, chronological split
