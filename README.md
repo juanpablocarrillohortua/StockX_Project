@@ -49,20 +49,22 @@ Go to [http://localhost:8501](http://localhost:8501). Pick a brand, enter the re
 
 ## Results at a Glance
 
-**Model:** Logistic Regression (L1, 5 features) · **Target:** `is_above_retail_90d` · **Test set:** 818 sneakers, chronological split
+**Model:** Logistic Regression (L1, 5 features), calibrated with `CalibratedClassifierCV` (sigmoid) · **Target:** `is_above_retail_90d` · **Test set:** 818 sneakers, chronological split
+
+These are the metrics of the actual deployed artifact (`bundle_above_retail.pkl`, as produced by the final section of `using_the_model.ipynb`) — the raw, pre-calibration model trained in `model_training.ipynb` scores slightly differently (see [Final Model (V1 — deployed)](#final-model-v1--deployed)).
 
 | Metric | Score |
 |---|---|
-| Precision | 0.70 |
-| Recall | 0.44 |
-| F1 | 0.54 |
+| Precision | 0.65 |
+| Recall | 0.53 |
+| F1 | 0.59 |
 | ROC-AUC | 0.75 |
 | Accuracy | 0.67 |
 
 ```
               precision    recall  f1-score   support
-below_retail       0.66      0.85      0.75       460
-above_retail       0.70      0.44      0.54       358
+below_retail       0.68      0.78      0.73       460
+above_retail       0.65      0.53      0.59       358
     accuracy                           0.67       818
 ```
 
@@ -72,11 +74,11 @@ above_retail       0.70      0.44      0.54       358
 |---|---|---|
 | 10 | 90.0% | 2.06x |
 | 25 | 96.0% | 2.19x |
-| 50 | 94.0% | 2.15x |
+| 50 | 92.0% | 2.10x |
 | 100 | 85.0% | 1.94x |
-| 200 | 71.5% | 1.63x |
+| 200 | 72.0% | 1.65x |
 
-**Takeaway:** at the default threshold the model is conservative (high precision, lower recall) — when it predicts "above retail," it's right 70% of the time, but it misses over half of the true above-retail sneakers. Where it really shines is at the top of the ranking: its 25 most confident predictions are correct 96% of the time, making it best suited for "best bets" recommendations rather than blanket classification. See [Decision Threshold Optimization](#decision-threshold-optimization) for how to trade precision for recall depending on use case.
+**Takeaway:** at the default threshold (0.43) the model is moderately balanced — when it predicts "above retail," it's right 65% of the time, and it catches about half (53%) of the true above-retail sneakers. Where it really shines is at the top of the ranking: its 25 most confident predictions are correct 96% of the time, making it best suited for "best bets" recommendations rather than blanket classification. See [Decision Threshold Optimization](#decision-threshold-optimization) for how to trade precision for recall depending on use case.
 
 ---
 
@@ -517,7 +519,7 @@ To test whether explicitly modeling this regime shift would help, **Model V2** w
 | `brand_Jordan` | Jordan brand dummy; consistently selected across bootstrap samples |
 | `num_pre_release_points` | Proxy for how closely the market tracked the pre-launch hype |
 
-**Test set evaluation** (818 sneakers, chronological holdout — see [Results at a Glance](#results-at-a-glance) for the summary table):
+**Test set evaluation, raw model** (818 sneakers, chronological holdout, before the calibration step applied in `using_the_model.ipynb` — see [Results at a Glance](#results-at-a-glance) for the deployed, calibrated numbers):
 
 ```
 Confusion matrix:
@@ -525,7 +527,7 @@ Confusion matrix:
  [199 159]]
 ```
 
-Reading the matrix: of 460 sneakers that stayed at or below retail, the model correctly flagged 392 (true negatives) and missed 68 (false positives). Of 358 sneakers that went above retail, it correctly caught 159 (true positives) but missed 199 (false negatives) — the main source of the model's relatively low recall (0.44).
+Reading the matrix: of 460 sneakers that stayed at or below retail, the model correctly flagged 392 (true negatives) and missed 68 (false positives). Of 358 sneakers that went above retail, it correctly caught 159 (true positives) but missed 199 (false negatives) — the main source of the model's relatively low recall (0.44) at this stage. Recall improves to 0.53 after calibration (see below), since `CalibratedClassifierCV` shifts the probability distribution enough to change which sneakers cross the fixed 0.43 threshold.
 
 #### Decision Threshold Optimization
 
@@ -549,11 +551,11 @@ Beyond binary classification, the model's predicted probabilities were evaluated
 |---|---|---|
 | 10 | 90.0% | 2.06x |
 | 25 | 96.0% | 2.19x |
-| 50 | 94.0% | 2.15x |
+| 50 | 92.0% | 2.10x |
 | 100 | 85.0% | 1.94x |
-| 200 | 71.5% | 1.63x |
+| 200 | 72.0% | 1.65x |
 
-The model is strongest at the very top of the ranking: its top 25 most-confident predictions are correct 96% of the time (2.19x better than random), making it well suited for "best bets" style recommendations rather than only blanket binary classification. Lift decays gradually as K grows, which is expected — wider nets pull in lower-confidence (riskier) candidates.
+The model is strongest at the very top of the ranking: its top 25 most-confident predictions are correct 96% of the time (2.19x better than random), making it well suited for "best bets" style recommendations rather than only blanket binary classification. Lift decays gradually as K grows, which is expected — wider nets pull in lower-confidence (riskier) candidates. (Figures above are from the deployed, calibrated model — see [Results at a Glance](#results-at-a-glance).)
 
 ---
 
@@ -563,19 +565,22 @@ The model is strongest at the very top of the ranking: its top 25 most-confident
 
 Loads the cleaned and split data (`data/ready_data.pkl`, `data/ref_test_lin.pkl`), refits the same preprocessing pipeline used in training (RobustScaler on numeric features, one-hot encoding of `brand_grouped`, cyclical encoding of date features), and trains the final V1 Logistic Regression model.
 
-**Deployment bundle.** The trained model, its fitted scaler, the final feature list, and precalculated brand historical rates are packaged into a single artifact for reuse without retraining:
+**Probability calibration.** The raw `LogisticRegression` outputs overconfident probabilities pushed toward the extremes. The notebook wraps it in `CalibratedClassifierCV` (`method='sigmoid'`, `cv=5`) to recalibrate `predict_proba` against the true empirical likelihoods before packaging the final bundle — this is the model actually shipped in `bundle_above_retail.pkl` and served by the Streamlit app.
+
+**Deployment bundle.** The calibrated model, its fitted scaler, and the final feature list are packaged into a single artifact for reuse without retraining:
 
 ```python
-bundle = {
-    'modelo': modelo_final,
+bundle_calibrated = {
+    'modelo': modelo_final,       # CalibratedClassifierCV wrapping the L1 LogisticRegression
     'scaler': scaler_lin,
     'variables': variables_finales,
-    'brand_historical_rates': {...},  # precomputed per-brand rates from training data
 }
-joblib.dump(bundle, 'bundle_above_retail.pkl')
+joblib.dump(bundle_calibrated, 'bundle_above_retail.pkl')
 ```
 
 **Interactive predictor.** The notebook includes a simple CLI-style predictor: the user selects a brand from a list and enters the remaining feature values, the bundle is loaded, inputs are scaled with the saved `scaler`, and the model outputs a probability that the sneaker will trade above retail at 90 days. This is intended as a lightweight reference implementation for serving the model outside the notebook (e.g. wrapping it in a script or API).
+
+**Regression test + final metrics summary.** The notebook closes with two checks against the just-saved bundle: a quick regression test that reloads it from disk and asserts predictions span a real probability range (catching, e.g., a scaler that silently degenerates into a no-op and saturates every prediction to 0 or 1), and a metrics-summary table (`df_metrics_summary`) reporting accuracy/precision/recall/F1/ROC-AUC at the deployment threshold plus ranker lift at each Top-K — the numbers in [Results at a Glance](#results-at-a-glance) come from this table.
 
 ---
 
