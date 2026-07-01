@@ -1,5 +1,15 @@
 # StockX Sneaker Analytics
 
+![Python](https://img.shields.io/badge/Python-3776AB.svg?style=for-the-badge&logo=python&logoColor=white)
+![Pandas](https://img.shields.io/badge/Pandas-150458.svg?style=for-the-badge&logo=pandas&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-013243.svg?style=for-the-badge&logo=numpy&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E.svg?style=for-the-badge&logo=scikitlearn&logoColor=white)
+![Jupyter](https://img.shields.io/badge/Jupyter-F37626.svg?style=for-the-badge&logo=jupyter&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-2EAD33.svg?style=for-the-badge&logo=playwright&logoColor=white)
+![Pydantic](https://img.shields.io/badge/Pydantic-E92063.svg?style=for-the-badge&logo=pydantic&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B.svg?style=for-the-badge&logo=streamlit&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED.svg?style=for-the-badge&logo=docker&logoColor=white)
+
 End-to-end pipeline that scrapes sneaker data from StockX, cleans it, performs exploratory analysis, and trains a machine learning model to predict whether a sneaker's resale price will exceed its retail price 90 days after launch.
 
 
@@ -8,6 +18,10 @@ if you want skip the scraping proccess download the json from [here](https://dri
 ---
 
 ## How to use the model
+
+
+<img width="1280" height="720" alt="2026-06-30-23-43-28" src="https://github.com/user-attachments/assets/c12577df-73b3-4ccf-9eda-32610286975a" />
+
 
 Want predictions without running the scraping or training pipeline? A pre-trained model is committed with this repo (`notebooks/bundle_above_retail.pkl`) and served through a small Streamlit app in a Docker container.
 
@@ -73,15 +87,24 @@ StockX_Project/
 ├── main.py
 ├── serial_downloads.py            ← Orchestrator: runs the full pipeline
 ├── config.py
+├── Dockerfile                     ← Builds the Streamlit predictor image (see app/)
+├── .dockerignore                  ← Keeps scraped data, notebooks, and caches out of the image
 ├── utils/
 │   ├── search_urls.py             ← Phase 1: extracts URLs from a StockX category
 │   ├── copy_html.py               ← Phase 2: downloads the HTML of each product page
 │   └── scraper.py                 ← Phase 3: merges HTML + GraphQL API → final JSON
+├── app/                           ← Streamlit inference app (served via Docker or locally)
+│   ├── app.py                     ← UI: sidebar inputs, prediction display
+│   ├── inference.py               ← Prediction logic, bundle loading (no Streamlit imports)
+│   ├── requirements.txt           ← Minimal runtime deps (streamlit, scikit-learn, joblib...)
+│   ├── bundle_above_retail.pkl    ← Copy of the deployment bundle used at build time
+│   └── scaler_lin.pkl             ← Copy of the fitted scaler used at build time
 ├── notebooks/
 │   ├── Data_Cleaning.ipynb        ← Cleaning, imputation, and feature engineering
 │   ├── EDA_1.ipynb                ← Univariate and bivariate exploratory analysis
 │   ├── model_training.ipynb       ← Feature selection, model training, and evaluation
 │   ├── bundle_above_retail.pkl    ← Deployment bundle: trained model + scaler + feature list + brand rates
+│   ├── scaler_lin.pkl             ← Fitted RobustScaler for the linear model's numeric features
 │   └── using_the_model.ipynb      ← Loads the final model and runs predictions
 ├── pickle_cache/                  ← Faster notebook runing
 │   ├── sfs_train_lin_cache.pkl
@@ -553,6 +576,25 @@ joblib.dump(bundle, 'bundle_above_retail.pkl')
 ```
 
 **Interactive predictor.** The notebook includes a simple CLI-style predictor: the user selects a brand from a list and enters the remaining feature values, the bundle is loaded, inputs are scaled with the saved `scaler`, and the model outputs a probability that the sneaker will trade above retail at 90 days. This is intended as a lightweight reference implementation for serving the model outside the notebook (e.g. wrapping it in a script or API).
+
+---
+
+## App (`app/`)
+
+The [app/](app/) folder productionizes the interactive predictor from `using_the_model.ipynb` as a small Streamlit web app, decoupled from the notebooks so it can be built into a standalone Docker image (see [How to use the model](#how-to-use-the-model) for the quick-start).
+
+| File | Role |
+|---|---|
+| `app.py` | Streamlit UI only — sidebar form (brand, retail price, pre-release peak, pre-release point count), calls into `inference.py`, and renders the probability, confidence tier, and suggested ranking. |
+| `inference.py` | Pure prediction logic, no Streamlit imports so it can be unit-tested or reused outside the UI. Loads the bundle, rebuilds the same 5 features used at training time (`retail_price`, `pre_release_premium_pct`, `brand_historical_rate`, `num_pre_release_points`, `brand_Jordan`), scales them with the saved `RobustScaler`, and calls `model.predict_proba`. |
+| `requirements.txt` | Minimal runtime dependencies (`streamlit`, `pandas`, `numpy`, `scikit-learn`, `joblib`) — deliberately smaller than the root `requirements.txt`, since the app doesn't need scraping or notebook dependencies. |
+| `bundle_above_retail.pkl` / `scaler_lin.pkl` | Copies of the artifacts produced by `using_the_model.ipynb`, committed here so `docker build` doesn't depend on the `notebooks/` folder (which `.dockerignore` excludes from the build context). |
+
+**Bundle resolution.** `inference.py` looks for the model bundle and scaler at `MODEL_BUNDLE_PATH` / `SCALER_PATH` (env vars), falling back to `notebooks/bundle_above_retail.pkl` / `notebooks/scaler_lin.pkl` for local development without Docker. The `Dockerfile` copies `app/bundle_above_retail.pkl` and `app/scaler_lin.pkl` into `/app/model/` inside the image and points both env vars there, so the container never needs the `notebooks/` folder at runtime.
+
+**Prediction output.** Beyond the raw probability, `predict()` buckets the result into a confidence tier (`LOW` / `MEDIUM` / `HIGH` / `VERY HIGH`) and a suggested ranking (`Discard` / `Medium candidate` / `Top candidate`) based on fixed probability cutoffs (0.50, 0.60, 0.70, 0.85), reflecting the model's strength as a ranking signal over blanket classification (see [Ranking Quality](#ranking-quality-top-k-analysis)).
+
+> Regenerating the bundle: if the model is retrained in `using_the_model.ipynb`, copy the new `bundle_above_retail.pkl` and `scaler_lin.pkl` from `notebooks/` into `app/` before rebuilding the Docker image, so the served model stays in sync with the notebook's.
 
 ---
 
